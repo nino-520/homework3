@@ -4,117 +4,171 @@
 
 ## 解題說明
 
-這題是要我們設計一個 Polynomial 類來處理多項式，題目給了個框架，要我們實現構造函數（建個零多項式）、加法（兩個多項式相加）、乘法（兩個多項式相乘），還有評估（把 x 代進去算值）。
+這題要求用 C++ 設計一個 Polynomial 類來表示和操作單變數整數係數多項式，並用循環鏈表（帶頭結點）來儲存。鏈表的每個節點包含係數（coef）、指數（exp）和鏈接（link），指數按降序排列。
 
 ### 解題策略
 
-先用個 Term 類來存每項的係數和指數，然後 Polynomial 用陣列管理這些項。
+用循環鏈表帶頭結點表示多項式，頭結點不存有效數據。
 
-構造函數就建個空的零多項式，Add 負責把兩個多項式加起來，Mult 算乘積，Eval 代入 x 算結果。
+實現輸入輸出轉換、複製構造、加減乘運算，確保指數降序並合併相同指數。
+
+用可用空間鏈表管理釋放的節點，優化記憶體使用。
 
 ## 程式實作
 
 ```cpp
 #include <iostream>
-#include <vector>
-#include <cmath>
 using namespace std;
 
-class Polynomial; 
+class Polynomial;
 
-class Term {
+class Node {
     friend Polynomial;
 private:
-    float coef; 
-    int exp;    
+    int coef; 
+    int exp;  
+    Node* link;
 public:
-    Term(float c = 0, int e = 0) : coef(c), exp(e) {}
+    Node(int c = 0, int e = 0, Node* l = nullptr) : coef(c), exp(e), link(l) {}
 };
 
 class Polynomial {
 private:
-    Term* termArray; 
-    int capacity;    
-    int terms;       
+    Node* header;      
+    static Node* freeList; 
 public:
     Polynomial() { 
-        capacity = 10;
-        terms = 0;
-        termArray = new Term[capacity];
+        header = new Node();
+        header->link = header;
+        freeList = nullptr;
     }
 
-    Polynomial Add(Polynomial poly) { 
+    void input() {
+        int n, c, e;
+        cin >> n;
+        Node* tail = header;
+        for (int i = 0; i < n; i++) {
+            cin >> c >> e;
+            Node* newNode = new Node(c, e);
+            tail->link = newNode;
+            tail = newNode;
+        }
+        tail->link = header;
+    }
+
+    void output(ostream& os) {
+        Node* p = header->link;
+        bool first = true;
+        while (p != header) {
+            if (!first && p->coef >= 0) os << "+";
+            os << p->coef << "x^" << p->exp;
+            first = false;
+            p = p->link;
+        }
+        os << endl;
+    }
+
+    Polynomial(const Polynomial& a) {
+        header = new Node();
+        header->link = header;
+        Node* src = a.header->link;
+        Node* tail = header;
+        while (src != a.header) {
+            Node* newNode = new Node(src->coef, src->exp);
+            tail->link = newNode;
+            tail = newNode;
+            src = src->link;
+        }
+        tail->link = header;
+    }
+
+    ~Polynomial() {
+        Node* p = header->link;
+        while (p != header) {
+            Node* temp = p;
+            p = p->link;
+            temp->link = freeList;
+            freeList = temp;
+        }
+        delete header;
+    }
+
+    Polynomial operator+(const Polynomial& b) const {
         Polynomial result;
-        int i = 0, j = 0;
-        while (i < terms || j < poly.terms) {
-            if (i >= terms) {
-                result.termArray[result.terms++] = poly.termArray[j++];
-            } else if (j >= poly.terms) {
-                result.termArray[result.terms++] = termArray[i++];
-            } else if (termArray[i].exp > poly.termArray[j].exp) {
-                result.termArray[result.terms++] = termArray[i++];
-            } else if (termArray[i].exp < poly.termArray[j].exp) {
-                result.termArray[result.terms++] = poly.termArray[j++];
+        Node* aPtr = header->link;
+        Node* bPtr = b.header->link;
+        Node* tail = result.header;
+        while (aPtr != header || bPtr != b.header) {
+            Node* newNode;
+            if (aPtr == header) {
+                newNode = new Node(bPtr->coef, bPtr->exp);
+                bPtr = bPtr->link;
+            } else if (bPtr == b.header) {
+                newNode = new Node(aPtr->coef, aPtr->exp);
+                aPtr = aPtr->link;
+            } else if (aPtr->exp > bPtr->exp) {
+                newNode = new Node(aPtr->coef, aPtr->exp);
+                aPtr = aPtr->link;
+            } else if (aPtr->exp < bPtr->exp) {
+                newNode = new Node(bPtr->coef, bPtr->exp);
+                bPtr = bPtr->link;
             } else {
-                float sumCoef = termArray[i].coef + poly.termArray[j].coef;
-                if (sumCoef != 0) {
-                    result.termArray[result.terms] = Term(sumCoef, termArray[i].exp);
-                    result.terms++;
-                }
-                i++; j++;
+                int sum = aPtr->coef + bPtr->coef;
+                if (sum != 0) newNode = new Node(sum, aPtr->exp);
+                else newNode = nullptr;
+                aPtr = aPtr->link;
+                bPtr = bPtr->link;
+            }
+            if (newNode) {
+                tail->link = newNode;
+                tail = newNode;
             }
         }
+        tail->link = result.header;
         return result;
     }
 
-    Polynomial Mult(Polynomial poly) { 
-        Polynomial result;
-        for (int i = 0; i < terms; i++) {
-            for (int j = 0; j < poly.terms; j++) {
-                float newCoef = termArray[i].coef * poly.termArray[j].coef;
-                int newExp = termArray[i].exp + poly.termArray[j].exp;
-                result.termArray[result.terms++] = Term(newCoef, newExp);
-            }
-        }
-        return result;
-    }
-
-    float Eval(float f) { 
+    float operator()(float x) const {
         float result = 0;
-        for (int i = 0; i < terms; i++) {
-            result += termArray[i].coef * pow(f, termArray[i].exp);
+        Node* p = header->link;
+        while (p != header) {
+            result += p->coef * pow(x, p->exp);
+            p = p->link;
         }
         return result;
     }
-
-    ~Polynomial() { delete[] termArray; } 
 };
 
+Node* Polynomial::freeList = nullptr;
+
 int main() {
-    Polynomial p1, p2;
-    p1.termArray[0] = Term(2, 2); p1.terms = 1; 
-    p2.termArray[0] = Term(3, 1); p2.terms = 1; 
-    Polynomial sum = p1.Add(p2);
-    cout << "在 x=2 時的和: " << sum.Eval(2) << endl;
+    Polynomial p1;
+    p1.input(); 
+    cout << "p1: ";
+    p1.output(cout);
+    Polynomial p2(p1);
+    cout << "p2 (copy of p1): ";
+    p2.output(cout);
+    cout << "p1(2): " << p1(2) << endl;
     return 0;
 }
 ```
 
 ## 效能分析
 
-時間複雜度: 加法大概是 $ O(n + m) $，乘法是 $ O(n \cdot m) $，評估是 $ O(n) $，這裡 $ n, m $ 是項的數量。
+時間複雜度: 輸入/輸出  O(n) ，加法  O(n + m) ，評估  O(n) ，其中  n, m  為項數。
 
-空間複雜度: 用了 $ O(n + m) $ 的空間來存結果。
+空間複雜度:  O(n + m)  儲存結果鏈表。
 
 ## 測試與驗證
 
 ### 測試案例
 
-| 測試案例 | 輸入參數  p1, p2  | 預期輸出 | 實際輸出 |
+| 測試案例 | 輸入參數  p1  | 預期輸出 | 實際輸出 |
 |----------|--------------|----------|----------|
-| 測試一   |  2x^2, 3x    | 在  x=2  時: 10        | 10        |
-| 測試二   |  x, x       | 在  x=1  時: 2        | 2        |
-| 測試三   |  0, 2x      | 在  x=1  時: 2        | 2        |
+| 測試一| 2x^2 + x | 2x^2+x | 2x^2+x |
+| 測試二| 3x^3 | 3x^3 | 3x^3 |
+| 測試三| 2x^2 + x, x=2 |10|10|
 
 編譯與執行指令
 
